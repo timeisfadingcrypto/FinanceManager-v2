@@ -5,36 +5,26 @@ class TransactionManager {
         this.categories = [];
         this.currentTransaction = null;
         this.ready = false;
+        this.categoriesRendered = false; // prevent duplicate option rendering
     }
 
     async ensureReady() {
         if (this.ready) return;
-        // Only load categories after authentication
         await this.loadCategories();
         this.bindEvents();
         this.ready = true;
     }
 
     bindEvents() {
-        // Add transaction button
         const addBtn = document.getElementById('addTransactionBtn');
-        if (addBtn) {
-            addBtn.addEventListener('click', () => this.showModal());
-        }
+        if (addBtn) addBtn.addEventListener('click', () => this.showModal());
 
-        // Transaction form submit
         const saveBtn = document.getElementById('saveTransactionBtn');
-        if (saveBtn) {
-            saveBtn.addEventListener('click', () => this.saveTransaction());
-        }
+        if (saveBtn) saveBtn.addEventListener('click', () => this.saveTransaction());
 
-        // Transaction type change - filter categories
         const typeSelect = document.getElementById('transactionType');
-        if (typeSelect) {
-            typeSelect.addEventListener('change', () => this.filterCategories());
-        }
+        if (typeSelect) typeSelect.addEventListener('change', () => this.filterCategories());
 
-        // Delegated click handlers for Edit/Delete to avoid inline handlers (CSP-friendly)
         const tbody = document.getElementById('transactionsList');
         if (tbody) {
             tbody.addEventListener('click', (e) => {
@@ -50,17 +40,16 @@ class TransactionManager {
             });
         }
 
-        // Modal reset on close
         const modal = document.getElementById('transactionModal');
-        if (modal) {
-            modal.addEventListener('hidden.bs.modal', () => this.resetModal());
-        }
+        if (modal) modal.addEventListener('hidden.bs.modal', () => this.resetModal());
     }
 
     async loadCategories() {
         try {
-            const response = await api.getCategories();
-            this.categories = response.categories || [];
+            if (this.categories.length === 0) {
+                const response = await api.getCategories();
+                this.categories = response.categories || [];
+            }
             this.populateCategories();
         } catch (error) {
             console.error('Failed to load categories:', error);
@@ -68,49 +57,49 @@ class TransactionManager {
         }
     }
 
-    populateCategories() {
-        const categorySelect = document.getElementById('transactionCategory');
-        if (!categorySelect) return;
+    populateCategories(force = false) {
+        const select = document.getElementById('transactionCategory');
+        if (!select) return;
 
-        categorySelect.innerHTML = '<option value="">Select Category</option>';
-        
-        this.categories.forEach(category => {
-            const option = document.createElement('option');
-            option.value = category.id;
-            option.textContent = category.name;
-            option.dataset.type = category.type;
-            categorySelect.appendChild(option);
+        if (this.categoriesRendered && !force) return; // already rendered once
+
+        // Build options once to avoid cumulative duplicates
+        const frag = document.createDocumentFragment();
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Select Category';
+        frag.appendChild(placeholder);
+
+        this.categories.forEach((c) => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.name;
+            opt.dataset.type = c.type;
+            frag.appendChild(opt);
         });
+
+        select.innerHTML = '';
+        select.appendChild(frag);
+        this.categoriesRendered = true;
     }
 
     filterCategories() {
         const typeSelect = document.getElementById('transactionType');
         const categorySelect = document.getElementById('transactionCategory');
-        
         if (!typeSelect || !categorySelect) return;
 
         const selectedType = typeSelect.value;
         const options = categorySelect.querySelectorAll('option');
 
-        options.forEach(option => {
-            if (option.value === '') {
-                option.style.display = 'block';
-                return;
-            }
-
+        options.forEach((option) => {
+            if (option.value === '') { option.style.display = 'block'; return; }
             const categoryType = option.dataset.type;
-            if (!selectedType || categoryType === 'both' || categoryType === selectedType) {
-                option.style.display = 'block';
-            } else {
-                option.style.display = 'none';
-            }
+            option.style.display = (!selectedType || categoryType === 'both' || categoryType === selectedType)
+                ? 'block' : 'none';
         });
 
-        // Reset category selection if current selection is now hidden
         const currentOption = categorySelect.querySelector(`option[value="${categorySelect.value}"]`);
-        if (currentOption && currentOption.style.display === 'none') {
-            categorySelect.value = '';
-        }
+        if (currentOption && currentOption.style.display === 'none') categorySelect.value = '';
     }
 
     async loadTransactions() {
@@ -143,32 +132,32 @@ class TransactionManager {
             return;
         }
 
-        tbody.innerHTML = this.transactions.map(transaction => `
+        tbody.innerHTML = this.transactions.map((t) => `
             <tr class="fade-in">
-                <td>${utils.formatDate(transaction.transaction_date)}</td>
-                <td>${transaction.description}</td>
+                <td>${utils.formatDate(t.transaction_date)}</td>
+                <td>${t.description}</td>
                 <td>
-                    <span class="category-badge" style="background-color: ${transaction.category_color || '#6c757d'}">
-                        <i class="${transaction.category_icon || 'fas fa-circle'}"></i>
-                        ${transaction.category_name || 'Uncategorized'}
+                    <span class="category-badge" style="background-color: ${t.category_color || '#6c757d'}">
+                        <i class="${t.category_icon || 'fas fa-circle'}"></i>
+                        ${t.category_name || 'Uncategorized'}
                     </span>
                 </td>
                 <td>
-                    <span class="badge bg-${transaction.type === 'income' ? 'success' : 'danger'}">
-                        ${transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
+                    <span class="badge bg-${t.type === 'income' ? 'success' : 'danger'}">
+                        ${t.type.charAt(0).toUpperCase() + t.type.slice(1)}
                     </span>
                 </td>
                 <td>
-                    <span class="transaction-amount ${transaction.type}">
-                        ${transaction.type === 'income' ? '+' : '-'}${utils.formatCurrency(Math.abs(transaction.amount))}
+                    <span class="transaction-amount ${t.type}">
+                        ${t.type === 'income' ? '+' : '-'}${utils.formatCurrency(Math.abs(t.amount))}
                     </span>
                 </td>
                 <td>
                     <div class="action-buttons">
-                        <button class="btn btn-sm btn-outline-primary action-edit" data-id="${transaction.id}" title="Edit">
+                        <button class="btn btn-sm btn-outline-primary action-edit" data-id="${t.id}" title="Edit">
                             <i class="fas fa-edit"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-danger action-delete" data-id="${transaction.id}" title="Delete">
+                        <button class="btn btn-sm btn-outline-danger action-delete" data-id="${t.id}" title="Delete">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
@@ -180,7 +169,6 @@ class TransactionManager {
     renderError() {
         const tbody = document.getElementById('transactionsList');
         if (!tbody) return;
-
         tbody.innerHTML = `
             <tr>
                 <td colspan="6" class="text-center py-4">
@@ -194,31 +182,24 @@ class TransactionManager {
                 </td>
             </tr>
         `;
-
         const retryBtn = document.getElementById('retryLoadTransactions');
         if (retryBtn) retryBtn.addEventListener('click', () => this.loadTransactions());
     }
 
     showModal(transaction = null) {
         this.currentTransaction = transaction;
-        
         const modal = new bootstrap.Modal(document.getElementById('transactionModal'));
         const title = document.getElementById('transactionModalTitle');
         const saveBtn = document.getElementById('saveTransactionBtn');
-        
         if (transaction) {
-            // Edit mode
             title.textContent = 'Edit Transaction';
             saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Update Transaction';
             this.populateForm(transaction);
         } else {
-            // Add mode
             title.textContent = 'Add Transaction';
             saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Transaction';
-            // Set today's date as default
             document.getElementById('transactionDate').value = new Date().toISOString().split('T')[0];
         }
-        
         modal.show();
     }
 
@@ -229,28 +210,23 @@ class TransactionManager {
         document.getElementById('transactionCategory').value = transaction.category_id;
         document.getElementById('transactionDate').value = transaction.transaction_date;
         document.getElementById('transactionTags').value = transaction.tags || '';
-        
-        // Filter categories based on type
         this.filterCategories();
     }
 
     resetModal() {
         this.currentTransaction = null;
-        document.getElementById('transactionForm').reset();
+        const form = document.getElementById('transactionForm');
+        if (form) form.reset();
         document.getElementById('transactionAlert').innerHTML = '';
-        
-        // Reset category options
-        this.populateCategories();
+        // Do NOT repopulate categories here to avoid duplicates
     }
 
     async saveTransaction() {
         try {
-            // Validate form
             if (!utils.validateForm('transactionForm')) {
                 utils.showAlert('Please fill in all required fields', 'warning', 'transactionAlert');
                 return;
             }
-
             const formData = {
                 amount: parseFloat(document.getElementById('transactionAmount').value),
                 type: document.getElementById('transactionType').value,
@@ -259,39 +235,27 @@ class TransactionManager {
                 transaction_date: document.getElementById('transactionDate').value,
                 tags: document.getElementById('transactionTags').value || null
             };
-
-            const saveBtn = document.getElementById('saveTransactionBtn');
-            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
-            saveBtn.disabled = true;
-
-            let response;
+            const btn = document.getElementById('saveTransactionBtn');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+            btn.disabled = true;
             if (this.currentTransaction) {
-                // Update existing transaction
-                response = await api.updateTransaction(this.currentTransaction.id, formData);
+                await api.updateTransaction(this.currentTransaction.id, formData);
                 utils.showAlert('Transaction updated successfully!', 'success');
             } else {
-                // Create new transaction
-                response = await api.createTransaction(formData);
+                await api.createTransaction(formData);
                 utils.showAlert('Transaction added successfully!', 'success');
             }
-
-            // Close modal and refresh list
             bootstrap.Modal.getInstance(document.getElementById('transactionModal')).hide();
             await this.loadTransactions();
-            
-            // Update dashboard if it's loaded
-            if (window.app && window.app.currentSection === 'dashboard') {
-                window.app.loadDashboard();
-            }
-
+            if (window.app && window.app.currentSection === 'dashboard') window.app.loadDashboard();
         } catch (error) {
             console.error('Failed to save transaction:', error);
             utils.showAlert(error.message, 'danger', 'transactionAlert');
         } finally {
-            const saveBtn = document.getElementById('saveTransactionBtn');
+            const btn = document.getElementById('saveTransactionBtn');
             const text = this.currentTransaction ? 'Update Transaction' : 'Save Transaction';
-            saveBtn.innerHTML = `<i class="fas fa-save me-2"></i>${text}`;
-            saveBtn.disabled = false;
+            btn.innerHTML = `<i class="fas fa-save me-2"></i>${text}`;
+            btn.disabled = false;
         }
     }
 
@@ -306,19 +270,12 @@ class TransactionManager {
     }
 
     async deleteTransaction(id) {
-        if (!confirm('Are you sure you want to delete this transaction? This action cannot be undone.')) {
-            return;
-        }
-
+        if (!confirm('Are you sure you want to delete this transaction? This action cannot be undone.')) return;
         try {
             await api.deleteTransaction(id);
             utils.showAlert('Transaction deleted successfully!', 'success');
             await this.loadTransactions();
-            
-            // Update dashboard if it's loaded
-            if (window.app && window.app.currentSection === 'dashboard') {
-                window.app.loadDashboard();
-            }
+            if (window.app && window.app.currentSection === 'dashboard') window.app.loadDashboard();
         } catch (error) {
             console.error('Failed to delete transaction:', error);
             utils.showAlert('Failed to delete transaction', 'danger');
@@ -326,5 +283,4 @@ class TransactionManager {
     }
 }
 
-// Initialize transaction manager lazily
 window.transactionManager = new TransactionManager();
