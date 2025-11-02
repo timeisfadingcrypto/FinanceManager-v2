@@ -83,6 +83,20 @@ app.use((err, req, res, next) => {
     });
 });
 
+// Optional DB initialization on startup (runtime only)
+if (process.env.INIT_DB_ON_BUILD === 'true') {
+    (async () => {
+        try {
+            console.log('🔧 INIT_DB_ON_BUILD enabled: initializing database at startup...');
+            const initDb = require('./scripts/init-db');
+            await initDb();
+            console.log('✅ Database init completed at startup');
+        } catch (e) {
+            console.error('❌ Database init failed at startup:', e);
+        }
+    })();
+}
+
 // Start server
 app.listen(PORT, () => {
     console.log(`🚀 FinanceManager v2 running on port ${PORT}`);
