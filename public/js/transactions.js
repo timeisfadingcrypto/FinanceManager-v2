@@ -4,19 +4,15 @@ class TransactionManager {
         this.transactions = [];
         this.categories = [];
         this.currentTransaction = null;
-        this.init();
+        this.ready = false;
     }
 
-    async init() {
-        try {
-            // Load categories first
-            await this.loadCategories();
-            
-            // Bind events
-            this.bindEvents();
-        } catch (error) {
-            console.error('Failed to initialize transaction manager:', error);
-        }
+    async ensureReady() {
+        if (this.ready) return;
+        // Only load categories after authentication
+        await this.loadCategories();
+        this.bindEvents();
+        this.ready = true;
     }
 
     bindEvents() {
@@ -311,5 +307,5 @@ class TransactionManager {
     }
 }
 
-// Initialize transaction manager
+// Initialize transaction manager lazily
 window.transactionManager = new TransactionManager();
