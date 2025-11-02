@@ -34,6 +34,22 @@ class TransactionManager {
             typeSelect.addEventListener('change', () => this.filterCategories());
         }
 
+        // Delegated click handlers for Edit/Delete to avoid inline handlers (CSP-friendly)
+        const tbody = document.getElementById('transactionsList');
+        if (tbody) {
+            tbody.addEventListener('click', (e) => {
+                const editBtn = e.target.closest('.action-edit');
+                const deleteBtn = e.target.closest('.action-delete');
+                if (editBtn) {
+                    const id = parseInt(editBtn.dataset.id, 10);
+                    if (!Number.isNaN(id)) this.editTransaction(id);
+                } else if (deleteBtn) {
+                    const id = parseInt(deleteBtn.dataset.id, 10);
+                    if (!Number.isNaN(id)) this.deleteTransaction(id);
+                }
+            });
+        }
+
         // Modal reset on close
         const modal = document.getElementById('transactionModal');
         if (modal) {
@@ -149,10 +165,10 @@ class TransactionManager {
                 </td>
                 <td>
                     <div class="action-buttons">
-                        <button class="btn btn-sm btn-outline-primary" onclick="window.transactionManager.editTransaction(${transaction.id})" title="Edit">
+                        <button class="btn btn-sm btn-outline-primary action-edit" data-id="${transaction.id}" title="Edit">
                             <i class="fas fa-edit"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="window.transactionManager.deleteTransaction(${transaction.id})" title="Delete">
+                        <button class="btn btn-sm btn-outline-danger action-delete" data-id="${transaction.id}" title="Delete">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
@@ -171,13 +187,16 @@ class TransactionManager {
                     <div class="text-danger">
                         <i class="fas fa-exclamation-triangle fa-2x mb-2"></i>
                         <p>Failed to load transactions. Please try again.</p>
-                        <button class="btn btn-outline-primary btn-sm" onclick="window.transactionManager.loadTransactions()">
-                            <i class="fas fa-retry me-1"></i>Retry
+                        <button class="btn btn-outline-primary btn-sm" id="retryLoadTransactions">
+                            <i class="fas fa-rotate-right me-1"></i>Retry
                         </button>
                     </div>
                 </td>
             </tr>
         `;
+
+        const retryBtn = document.getElementById('retryLoadTransactions');
+        if (retryBtn) retryBtn.addEventListener('click', () => this.loadTransactions());
     }
 
     showModal(transaction = null) {
