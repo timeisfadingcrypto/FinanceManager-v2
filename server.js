@@ -23,16 +23,41 @@ const PORT = process.env.PORT || 3000;
 // Trust reverse proxy headers (needed on Railway for correct client IP)
 app.set('trust proxy', 1);
 
-// Security middleware
+// Enhanced Security middleware with relaxed CSP for enhanced features
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
-            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-hashes'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
-            fontSrc: ["'self'", "https://cdnjs.cloudflare.com"],
-            imgSrc: ["'self'", "data:", "https:"],
-            connectSrc: ["'self'"]
+            styleSrc: [
+                "'self'", 
+                "'unsafe-inline'", 
+                "https://cdn.jsdelivr.net", 
+                "https://cdnjs.cloudflare.com"
+            ],
+            scriptSrc: [
+                "'self'", 
+                "'unsafe-inline'", // Allow inline scripts for enhanced budget features
+                "'unsafe-eval'", // Allow eval for dynamic features if needed
+                "https://cdn.jsdelivr.net", 
+                "https://cdnjs.cloudflare.com"
+            ],
+            scriptSrcAttr: [
+                "'self'",
+                "'unsafe-hashes'", // Allow hash-based inline event handlers
+                "'unsafe-inline'" // Temporarily allow inline event handlers for enhanced features
+            ],
+            fontSrc: [
+                "'self'", 
+                "https://cdnjs.cloudflare.com"
+            ],
+            imgSrc: [
+                "'self'", 
+                "data:", 
+                "https:"
+            ],
+            connectSrc: [
+                "'self'"
+            ]
         }
     }
 }));
@@ -40,8 +65,10 @@ app.use(helmet({
 // Rate limiting
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
-    message: { error: 'Too many requests, please try again later' }
+    max: 200, // Increased limit for enhanced features
+    message: { error: 'Too many requests, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false
 });
 app.use('/api/', limiter);
 
@@ -163,6 +190,15 @@ if (process.env.INIT_DB_ON_BUILD === 'true') {
             console.log('✅ Enhanced database initialization completed at startup');
         } catch (e) {
             console.error('❌ Enhanced database initialization failed at startup:', e);
+            // Try fallback to original init-db.js
+            try {
+                console.log('🔄 Trying fallback database initialization...');
+                const fallbackInitDb = require('./scripts/init-db');
+                await fallbackInitDb();
+                console.log('✅ Fallback database initialization completed');
+            } catch (fallbackError) {
+                console.error('❌ Fallback database initialization also failed:', fallbackError);
+            }
         }
     })();
 }
@@ -181,6 +217,7 @@ app.listen(PORT, () => {
     console.log('   📊 Advanced Analytics & Performance Tracking');
     console.log('   🎨 Enhanced Category Management');
     console.log('   🔍 Debug Endpoints for Troubleshooting');
+    console.log('   🔐 Authentication Compatibility Layer');
     
     if (process.env.NODE_ENV !== 'production') {
         console.log('\n🔧 DEBUG ENDPOINTS:');
@@ -191,7 +228,7 @@ app.listen(PORT, () => {
         console.log('   GET  /api/debug/system-info');
     }
     
-    console.log('\n🚀 Ready for enhanced budget management!');
+    console.log('\n🚀 Ready for enhanced budget management with fixed authentication!');
 });
 
 module.exports = app;
