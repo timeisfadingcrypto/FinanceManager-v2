@@ -8,11 +8,13 @@ const router = express.Router();
 // Get all transactions for user
 router.get('/', authenticateToken, async (req, res) => {
     try {
-        const { page = 1, limit = 50, type, category_id, start_date, end_date } = req.query;
+        const page = Math.max(1, parseInt(req.query.page ?? '1', 10));
+        const limit = Math.max(1, parseInt(req.query.limit ?? '50', 10));
         const offset = (page - 1) * limit;
+        const { type, category_id, start_date, end_date } = req.query;
 
         let whereClause = 'WHERE t.user_id = ?';
-        let params = [req.user.id];
+        const params = [req.user.id];
 
         if (type) {
             whereClause += ' AND t.type = ?';
@@ -31,20 +33,19 @@ router.get('/', authenticateToken, async (req, res) => {
             params.push(end_date);
         }
 
-        const [transactions] = await pool.execute(
-            `SELECT t.*, c.name as category_name, c.color as category_color,
-                    a.name as account_name
-             FROM transactions t
-             LEFT JOIN categories c ON t.category_id = c.id
-             LEFT JOIN accounts a ON t.account_id = a.id
-             ${whereClause}
-             ORDER BY t.transaction_date DESC, t.created_at DESC
-             LIMIT ? OFFSET ?`,
-            [...params, parseInt(limit), parseInt(offset)]
-        );
+        const sql = `
+            SELECT t.*, c.name as category_name, c.color as category_color,
+                   a.name as account_name
+            FROM transactions t
+            LEFT JOIN categories c ON t.category_id = c.id
+            LEFT JOIN accounts a ON t.account_id = a.id
+            ${whereClause}
+            ORDER BY t.transaction_date DESC, t.created_at DESC
+            LIMIT ? OFFSET ?`;
 
-        // Get total count
-        const [countResult] = await pool.execute(
+        const [transactions] = await pool.query(sql, [...params, limit, offset]);
+
+        const [countResult] = await pool.query(
             `SELECT COUNT(*) as total FROM transactions t ${whereClause}`,
             params
         );
@@ -52,8 +53,8 @@ router.get('/', authenticateToken, async (req, res) => {
         res.json({
             transactions,
             pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
+                page,
+                limit,
                 total: countResult[0].total,
                 totalPages: Math.ceil(countResult[0].total / limit)
             }
@@ -67,7 +68,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // Get transaction by ID
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
-        const [transactions] = await pool.execute(
+        const [transactions] = await pool.query(
             `SELECT t.*, c.name as category_name, c.color as category_color,
                     a.name as account_name
              FROM transactions t
@@ -93,14 +94,13 @@ router.post('/', authenticateToken, validate('transaction'), async (req, res) =>
     try {
         const { amount, description, type, category_id, account_id, transaction_date, tags } = req.validatedData;
 
-        const [result] = await pool.execute(
+        const [result] = await pool.query(
             `INSERT INTO transactions (user_id, amount, description, type, category_id, account_id, transaction_date, tags, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
             [req.user.id, amount, description, type, category_id, account_id, transaction_date, tags]
         );
 
-        // Get the created transaction with category info
-        const [transactions] = await pool.execute(
+        const [transactions] = await pool.query(
             `SELECT t.*, c.name as category_name, c.color as category_color,
                     a.name as account_name
              FROM transactions t
@@ -125,7 +125,7 @@ router.put('/:id', authenticateToken, validate('transaction'), async (req, res) 
     try {
         const { amount, description, type, category_id, account_id, transaction_date, tags } = req.validatedData;
 
-        const [result] = await pool.execute(
+        const [result] = await pool.query(
             `UPDATE transactions 
              SET amount = ?, description = ?, type = ?, category_id = ?, account_id = ?, 
                  transaction_date = ?, tags = ?, updated_at = NOW()
@@ -137,8 +137,7 @@ router.put('/:id', authenticateToken, validate('transaction'), async (req, res) 
             return res.status(404).json({ error: 'Transaction not found' });
         }
 
-        // Get the updated transaction
-        const [transactions] = await pool.execute(
+        const [transactions] = await pool.query(
             `SELECT t.*, c.name as category_name, c.color as category_color,
                     a.name as account_name
              FROM transactions t
@@ -161,7 +160,7 @@ router.put('/:id', authenticateToken, validate('transaction'), async (req, res) 
 // Delete transaction
 router.delete('/:id', authenticateToken, async (req, res) => {
     try {
-        const [result] = await pool.execute(
+        const [result] = await pool.query(
             'DELETE FROM transactions WHERE id = ? AND user_id = ?',
             [req.params.id, req.user.id]
         );
@@ -182,14 +181,14 @@ router.get('/stats/summary', authenticateToken, async (req, res) => {
     try {
         const { start_date, end_date } = req.query;
         let dateFilter = '';
-        let params = [req.user.id];
+        const params = [req.user.id];
 
         if (start_date && end_date) {
             dateFilter = 'AND transaction_date BETWEEN ? AND ?';
             params.push(start_date, end_date);
         }
 
-        const [stats] = await pool.execute(
+        const [stats] = await pool.query(
             `SELECT 
                 SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as total_income,
                 SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as total_expenses,
@@ -200,8 +199,12 @@ router.get('/stats/summary', authenticateToken, async (req, res) => {
             params
         );
 
-        const summary = stats[0];
-        summary.net_income = (summary.total_income || 0) - (summary.total_expenses || 0);
+        const summary = stats[0] || {};
+        summary.total_income = summary.total_income || 0;
+        summary.total_expenses = summary.total_expenses || 0;
+        summary.total_transactions = summary.total_transactions || 0;
+        summary.avg_transaction = summary.avg_transaction || 0;
+        summary.net_income = summary.total_income - summary.total_expenses;
 
         res.json({ stats: summary });
     } catch (error) {
