@@ -22,9 +22,15 @@
   "devDependencies": {
     "nodemon": "^3.0.2"
   },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
   "keywords": ["finance", "budgeting", "personal-finance", "money-management"],
   "repository": {
     "type": "git",
     "url": "https://github.com/timeisfadingcrypto/FinanceManager-v2.git"
-  }
+  },
+  "author": "timeisfadingcrypto",
+  "license": "MIT"
 }
