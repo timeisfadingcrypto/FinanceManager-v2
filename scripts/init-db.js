@@ -2,23 +2,36 @@ const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 const initDatabase = async () => {
-    const connection = await mysql.createConnection({
+    const dbName = process.env.DB_NAME || 'financemanager_v2';
+
+    // First connection: server-level (no database selected)
+    const serverConn = await mysql.createConnection({
         host: process.env.DB_HOST || 'localhost',
         port: process.env.DB_PORT || 3306,
         user: process.env.DB_USER || 'root',
         password: process.env.DB_PASSWORD || ''
     });
 
+    let dbConn;
+
     try {
-        // Create database if it doesn't exist
-        await connection.execute(`CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME || 'financemanager_v2'}`);
-        await connection.execute(`USE ${process.env.DB_NAME || 'financemanager_v2'}`);
+        // Create database if it doesn't exist (server-level)
+        await serverConn.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
+        console.log('✅ Database created/ensured');
 
-        console.log('✅ Database created/selected');
+        // Second connection: connect directly to the target DB (avoid USE)
+        dbConn = await mysql.createConnection({
+            host: process.env.DB_HOST || 'localhost',
+            port: process.env.DB_PORT || 3306,
+            user: process.env.DB_USER || 'root',
+            password: process.env.DB_PASSWORD || '',
+            database: dbName,
+            multipleStatements: true
+        });
+        console.log('✅ Connected to database:', dbName);
 
-        // Create tables
+        // Create tables (DDL via query, not execute)
         const tables = [
-            // Users table
             `CREATE TABLE IF NOT EXISTS users (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 email VARCHAR(255) UNIQUE NOT NULL,
@@ -33,7 +46,6 @@ const initDatabase = async () => {
                 INDEX idx_active (active)
             )`,
 
-            // Categories table
             `CREATE TABLE IF NOT EXISTS categories (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 name VARCHAR(100) NOT NULL,
@@ -46,7 +58,6 @@ const initDatabase = async () => {
                 INDEX idx_default (is_default)
             )`,
 
-            // Accounts table
             `CREATE TABLE IF NOT EXISTS accounts (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 user_id INT NOT NULL,
@@ -61,7 +72,6 @@ const initDatabase = async () => {
                 INDEX idx_user_active (user_id, active)
             )`,
 
-            // Transactions table
             `CREATE TABLE IF NOT EXISTS transactions (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 user_id INT NOT NULL,
@@ -82,7 +92,6 @@ const initDatabase = async () => {
                 INDEX idx_category (category_id)
             )`,
 
-            // Budgets table
             `CREATE TABLE IF NOT EXISTS budgets (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 user_id INT NOT NULL,
@@ -100,7 +109,6 @@ const initDatabase = async () => {
                 INDEX idx_dates (start_date, end_date)
             )`,
 
-            // Bills table
             `CREATE TABLE IF NOT EXISTS bills (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 user_id INT NOT NULL,
@@ -120,7 +128,6 @@ const initDatabase = async () => {
                 INDEX idx_active (active)
             )`,
 
-            // Debts table
             `CREATE TABLE IF NOT EXISTS debts (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 user_id INT NOT NULL,
@@ -139,7 +146,6 @@ const initDatabase = async () => {
                 INDEX idx_type (type)
             )`,
 
-            // Goals table
             `CREATE TABLE IF NOT EXISTS goals (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 user_id INT NOT NULL,
@@ -160,12 +166,10 @@ const initDatabase = async () => {
         ];
 
         for (const table of tables) {
-            await connection.execute(table);
+            await dbConn.query(table);
         }
-
         console.log('✅ All tables created successfully');
 
-        // Insert default categories
         const defaultCategories = [
             ['Food & Dining', 'expense', '#e74c3c', 'fas fa-utensils'],
             ['Transportation', 'expense', '#3498db', 'fas fa-car'],
@@ -183,20 +187,20 @@ const initDatabase = async () => {
         ];
 
         for (const [name, type, color, icon] of defaultCategories) {
-            await connection.execute(
+            await dbConn.query(
                 'INSERT IGNORE INTO categories (name, type, color, icon, is_default) VALUES (?, ?, ?, ?, TRUE)',
                 [name, type, color, icon]
             );
         }
-
         console.log('✅ Default categories inserted');
         console.log('🎉 Database initialization complete!');
-        
+
     } catch (error) {
         console.error('❌ Database initialization failed:', error);
         throw error;
     } finally {
-        await connection.end();
+        try { if (dbConn) await dbConn.end(); } catch (e) {}
+        try { await serverConn.end(); } catch (e) {}
     }
 };
 
@@ -205,3 +209,4 @@ if (require.main === module) {
 }
 
 module.exports = initDatabase;
+}
