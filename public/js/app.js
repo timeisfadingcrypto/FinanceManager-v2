@@ -2,17 +2,29 @@
 class App {
     constructor() {
         this.currentSection = 'dashboard';
+        this.initialized = false;
         this.init();
     }
 
     init() {
-        // Wait for auth to be ready
-        if (window.auth && window.auth.isAuthenticated()) {
-            this.bindEvents();
+        // Wait for auth to be ready; do not bootstrap section managers until authenticated
+        if (window.auth && (window.auth.isAuthenticated())) {
+            if (!this.initialized) {
+                this.bindEvents();
+                this.initialized = true;
+            }
             this.showSection('dashboard');
         } else {
-            // Check again after a short delay
-            setTimeout(() => this.init(), 100);
+            // Ensure login UI is visible
+            const login = document.getElementById('loginSection');
+            const main = document.getElementById('mainContent');
+            const nav = document.getElementById('mainNavbar');
+            if (login) login.style.display = 'block';
+            if (main) main.style.display = 'none';
+            if (nav) nav.style.display = 'none';
+
+            // Retry until authenticated
+            setTimeout(() => this.init(), 150);
         }
     }
 
@@ -48,8 +60,10 @@ class App {
             link.classList.add('active');
         });
 
-        // Load section-specific data
-        this.loadSectionData(sectionName);
+        // Load section-specific data ONLY after authentication
+        if (window.auth && window.auth.isAuthenticated()) {
+            this.loadSectionData(sectionName);
+        }
     }
 
     async loadSectionData(sectionName) {
@@ -59,21 +73,23 @@ class App {
                     await this.loadDashboard();
                     break;
                 case 'transactions':
+                    // Initialize and load transactions on demand
                     if (window.transactionManager) {
+                        await window.transactionManager.ensureReady();
                         await window.transactionManager.loadTransactions();
                     }
                     break;
                 case 'budgets':
-                    // TODO: Load budgets
+                    // TODO: Load budgets when implemented
                     break;
                 case 'bills':
-                    // TODO: Load bills
+                    // TODO: Load bills when implemented
                     break;
                 case 'debts':
-                    // TODO: Load debts
+                    // TODO: Load debts when implemented
                     break;
                 case 'goals':
-                    // TODO: Load goals
+                    // TODO: Load goals when implemented
                     break;
                 case 'profile':
                     await this.loadProfile();
@@ -107,10 +123,9 @@ class App {
 
         } catch (error) {
             console.error('Failed to load dashboard:', error);
-            // Show error state in dashboard
             ['dashboardIncome', 'dashboardExpenses', 'dashboardNet', 'dashboardTransactions'].forEach(id => {
                 const element = document.getElementById(id);
-                if (element) element.textContent = 'Error';
+                if (element) element.textContent = '—';
             });
         }
     }
@@ -119,7 +134,6 @@ class App {
         try {
             const user = window.auth.getCurrentUser();
             if (user) {
-                // TODO: Display user profile information
                 console.log('User profile:', user);
             }
         } catch (error) {
@@ -127,9 +141,10 @@ class App {
         }
     }
 
-    // Utility method to refresh current section
     async refreshCurrentSection() {
-        await this.loadSectionData(this.currentSection);
+        if (window.auth && window.auth.isAuthenticated()) {
+            await this.loadSectionData(this.currentSection);
+        }
     }
 }
 
@@ -137,7 +152,6 @@ class App {
 document.addEventListener('DOMContentLoaded', () => {
     console.log('🚀 FinanceManager v2 - Application Starting');
     
-    // Wait for auth manager to be ready
     const initApp = () => {
         if (window.auth) {
             window.app = new App();
