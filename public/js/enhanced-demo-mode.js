@@ -1,6 +1,7 @@
 /**
  * Enhanced Demo Mode for FinanceManager v2
  * Provides comprehensive mock data for budget testing including templates and AI recommendations
+ * Now with improved API integration that preserves authentication
  */
 
 // Enhanced mock data for comprehensive budget feature testing
@@ -336,7 +337,7 @@ function enhancedBudgetMockApi(endpoint, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
     const path = endpoint.split('?')[0];
     
-    console.log(`🛫 Enhanced Mock API: ${method} ${path}`);
+    console.log(`🛸 Enhanced Mock API: ${method} ${path}`);
     
     // Enhanced budget endpoints
     if (path === '/budgets' && method === 'GET') {
@@ -514,62 +515,54 @@ function enhancedBudgetMockApi(endpoint, options = {}) {
         });
     }
     
-    // Fall back to original API or return null
+    // Return null if endpoint not handled by mock
     return null;
 }
 
-// Integration with existing API system
+// Enhanced API integration that preserves authentication
 if (typeof window !== 'undefined') {
-    // Store original API if it exists
-    const originalApi = window.api;
-    
-    // Enhanced API wrapper that prioritizes enhanced budget endpoints
-    window.api = {
-        // Keep original API methods
-        ...(originalApi || {}),
+    // Wait for API to be ready
+    const initEnhancedDemo = () => {
+        if (!window.api || !window.api.request) {
+            setTimeout(initEnhancedDemo, 50);
+            return;
+        }
         
-        // Enhanced request method
-        async request(endpoint, options = {}) {
-            // Try enhanced mock API first for budget endpoints
+        // Store original API request method
+        const originalRequest = window.api.request;
+        
+        // Create enhanced wrapper that preserves all original functionality
+        window.api.request = async function(endpoint, options = {}) {
+            // Try enhanced mock API first for budget endpoints only
             if (endpoint.startsWith('/budgets') || endpoint.startsWith('/debug')) {
                 const mockResult = enhancedBudgetMockApi(endpoint, options);
                 if (mockResult !== null) {
-                    console.log(`🎆 Enhanced Mock API served: ${options.method || 'GET'} ${endpoint}`);
+                    console.log(`🎬 Enhanced Mock API served: ${options.method || 'GET'} ${endpoint}`);
                     return mockResult;
                 }
             }
             
-            // Fall back to original API if available
-            if (originalApi && typeof originalApi.request === 'function') {
-                return originalApi.request(endpoint, options);
-            }
-            
-            // Final fallback to direct fetch
-            const token = localStorage.getItem('token');
-            const headers = {
-                'Content-Type': 'application/json',
-                ...(token && { 'Authorization': `Bearer ${token}` })
-            };
-            
-            const response = await fetch(`/api${endpoint}`, {
-                ...options,
-                headers: { ...headers, ...options.headers }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`API request failed: ${response.statusText}`);
-            }
-            
-            return response.json();
-        }
+            // Fall back to original API for all other endpoints (including auth)
+            return originalRequest.call(this, endpoint, options);
+        };
+        
+        // Preserve all other API methods (login, setToken, etc.)
+        // They remain unchanged and fully functional
+        
+        console.log('✅ Enhanced Budget Demo Mode loaded with auth preservation');
+        console.log(`📋 Mock Data: ${EnhancedBudgetMockData.budgets.length} budgets, ${EnhancedBudgetMockData.categories.length} categories, ${EnhancedBudgetMockData.templates.length} templates`);
     };
+    
+    // Initialize after DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initEnhancedDemo);
+    } else {
+        initEnhancedDemo();
+    }
     
     // Expose enhanced mock data for debugging
     window.EnhancedBudgetMockData = EnhancedBudgetMockData;
     window.enhancedBudgetMockApi = enhancedBudgetMockApi;
-    
-    console.log('✅ Enhanced Budget Demo Mode loaded with comprehensive mock data');
-    console.log(`📋 Mock Data: ${EnhancedBudgetMockData.budgets.length} budgets, ${EnhancedBudgetMockData.categories.length} categories, ${EnhancedBudgetMockData.templates.length} templates`);
 }
 
 // Export for module use
