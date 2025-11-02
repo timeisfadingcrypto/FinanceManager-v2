@@ -136,7 +136,7 @@ class BudgetManager {
                         </div>
                     </td>
                     <td>
-                        ${statusBudgeage}
+                        ${statusBadge}
                         <small class="d-block text-muted">${budget.period}</small>
                     </td>
                     <td>
