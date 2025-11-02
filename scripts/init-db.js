@@ -95,18 +95,22 @@ const initDatabase = async () => {
             `CREATE TABLE IF NOT EXISTS budgets (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 user_id INT NOT NULL,
-                category_id INT NOT NULL,
+                category_id INT,
+                name VARCHAR(255) NOT NULL,
                 amount DECIMAL(15,2) NOT NULL,
                 period ENUM('weekly', 'monthly', 'yearly') DEFAULT 'monthly',
                 start_date DATE NOT NULL,
-                end_date DATE NOT NULL,
+                end_date DATE,
+                description TEXT,
+                is_active BOOLEAN DEFAULT TRUE,
                 alert_threshold DECIMAL(5,2) DEFAULT 80.00,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (category_id) REFERENCES categories(id),
+                FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
                 INDEX idx_user_period (user_id, period),
-                INDEX idx_dates (start_date, end_date)
+                INDEX idx_dates (start_date, end_date),
+                INDEX idx_active (is_active)
             )`,
 
             `CREATE TABLE IF NOT EXISTS bills (
