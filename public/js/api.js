@@ -35,6 +35,22 @@ class API {
 
         try {
             const response = await fetch(url, config);
+            const contentType = response.headers.get('content-type') || '';
+
+            // Prefer JSON when advertised, otherwise surface readable error
+            if (!contentType.includes('application/json')) {
+                const text = await response.text();
+                if (!response.ok) {
+                    throw new Error(text || `HTTP ${response.status}`);
+                }
+                // Try to parse if backend omitted header but sent JSON
+                try {
+                    return JSON.parse(text);
+                } catch {
+                    throw new Error('Unexpected non-JSON response from server');
+                }
+            }
+
             const data = await response.json();
 
             if (!response.ok) {
