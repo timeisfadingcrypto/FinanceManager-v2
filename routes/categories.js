@@ -17,12 +17,24 @@ router.get('/', authenticateToken, async (req, res) => {
             params.push(type);
         }
         
-        const [categories] = await pool.execute(
+        const [categories] = await pool.query(
             `SELECT id, name, type, color, icon FROM categories ${whereClause} ORDER BY name`,
             params
         );
         
-        res.json({ categories });
+        // Deduplicate by (name, type) combination - keep first occurrence
+        const uniqueCategories = [];
+        const seen = new Set();
+        
+        for (const category of categories) {
+            const key = `${category.name}-${category.type}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                uniqueCategories.push(category);
+            }
+        }
+        
+        res.json({ categories: uniqueCategories });
     } catch (error) {
         console.error('Get categories error:', error);
         res.status(500).json({ error: 'Failed to fetch categories' });
