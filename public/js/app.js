@@ -80,7 +80,11 @@ class App {
                     }
                     break;
                 case 'budgets':
-                    // TODO: Load budgets when implemented
+                    // Initialize and load budgets on demand
+                    if (window.budgetManager) {
+                        await window.budgetManager.ensureReady();
+                        await window.budgetManager.loadBudgets();
+                    }
                     break;
                 case 'bills':
                     // TODO: Load bills when implemented
