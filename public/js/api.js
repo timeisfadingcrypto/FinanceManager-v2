@@ -128,6 +128,37 @@ class API {
         return this.request(endpoint);
     }
 
+    // Budget endpoints
+    async getBudgets(params = {}) {
+        const queryString = new URLSearchParams(params).toString();
+        const endpoint = queryString ? `/budgets?${queryString}` : '/budgets';
+        return this.request(endpoint);
+    }
+
+    async getBudget(id) {
+        return this.request(`/budgets/${id}`);
+    }
+
+    async createBudget(data) {
+        return this.request('/budgets', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async updateBudget(id, data) {
+        return this.request(`/budgets/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async deleteBudget(id) {
+        return this.request(`/budgets/${id}`, {
+            method: 'DELETE'
+        });
+    }
+
     // Category endpoints
     async getCategories() {
         return this.request('/categories');
