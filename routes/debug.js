@@ -1,0 +1,444 @@
+const express = require('express');
+const { pool } = require('../config/database');
+const { authenticateToken } = require('../middleware/auth');
+
+const router = express.Router();
+
+// GET /api/debug/budget-setup - Comprehensive budget system diagnosis
+router.get('/budget-setup', authenticateToken, async (req, res) => {
+    try {
+        // Check budgets table structure
+        const [budgetTableInfo] = await pool.query(`
+            SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+            FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'budgets'
+            ORDER BY ORDINAL_POSITION
+        `);
+        
+        // Check categories available for budgets
+        const [categories] = await pool.query(`
+            SELECT id, name, type, color, icon, is_default
+            FROM categories 
+            WHERE type IN ('expense', 'both')
+            ORDER BY is_default DESC, name
+        `);
+        
+        // Check user's existing budgets
+        const [userBudgets] = await pool.query(`
+            SELECT 
+                b.id, 
+                b.name, 
+                b.amount, 
+                b.period, 
+                b.start_date, 
+                b.end_date,
+                b.is_active,
+                c.name as category_name
+            FROM budgets b
+            LEFT JOIN categories c ON b.category_id = c.id
+            WHERE b.user_id = ?
+            ORDER BY b.created_at DESC
+            LIMIT 10
+        `, [req.user.id]);
+        
+        // Check recent transactions for spending analysis
+        const [recentTransactions] = await pool.query(`
+            SELECT 
+                t.category_id,
+                c.name as category_name,
+                COUNT(*) as transaction_count,
+                SUM(t.amount) as total_spent,
+                AVG(t.amount) as avg_amount
+            FROM transactions t
+            LEFT JOIN categories c ON t.category_id = c.id
+            WHERE t.user_id = ? 
+                AND t.type = 'expense'
+                AND t.transaction_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            GROUP BY t.category_id, c.name
+            ORDER BY total_spent DESC
+        `, [req.user.id]);
+        
+        // System health checks
+        const [tableExists] = await pool.query(`
+            SELECT TABLE_NAME 
+            FROM information_schema.TABLES 
+            WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'budgets'
+        `);
+        
+        res.json({
+            status: 'debug_complete',
+            timestamp: new Date().toISOString(),
+            user_id: req.user.id,
+            system_health: {
+                budgets_table_exists: tableExists.length > 0,
+                table_columns: budgetTableInfo.length,
+                categories_available: categories.length,
+                expense_categories: categories.filter(c => c.type === 'expense').length
+            },
+            table_structure: budgetTableInfo,
+            available_categories: categories,
+            user_budgets: {
+                count: userBudgets.length,
+                budgets: userBudgets
+            },
+            spending_analysis: {
+                categories_with_spending: recentTransactions.length,
+                recent_activity: recentTransactions.slice(0, 5)
+            },
+            recommendations: {
+                next_steps: [
+                    categories.length === 0 ? '❌ Initialize categories: POST /api/debug/init-categories' : '✅ Categories available',
+                    !budgetTableInfo.find(col => col.COLUMN_NAME === 'end_date' && col.IS_NULLABLE === 'YES') ? '❌ Budget table needs migration: end_date should be nullable' : '✅ Budget table schema OK',
+                    userBudgets.length === 0 ? '💡 Create your first budget via the UI or API' : `✅ You have ${userBudgets.length} budget(s)`,
+                    recentTransactions.length === 0 ? '💡 Add some transactions to get AI recommendations' : `✅ Found spending in ${recentTransactions.length} categories`
+                ]
+            }
+        });
+    } catch (error) {
+        console.error('Debug budget setup error:', error);
+        res.status(500).json({ 
+            error: 'Debug failed',
+            message: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+// POST /api/debug/test-budget - Test budget creation with detailed logging
+router.post('/test-budget', authenticateToken, async (req, res) => {
+    try {
+        const testData = {
+            category_id: req.body.category_id || null,
+            name: 'Test Budget',
+            amount: 500,
+            period: 'monthly',
+            start_date: new Date().toISOString().split('T')[0],
+            end_date: null, // Test nullable end_date
+            description: 'Test budget creation - safe to delete',
+            alert_threshold: 80,
+            notes: 'Generated by debug endpoint'
+        };
+        
+        console.log('🧪 Testing budget creation with data:', testData);
+        
+        // Find a category to test with if none provided
+        if (!testData.category_id) {
+            const [expenseCategories] = await pool.query(
+                'SELECT id, name FROM categories WHERE type IN ("expense", "both") LIMIT 1'
+            );
+            
+            if (expenseCategories.length === 0) {
+                return res.status(400).json({ 
+                    error: 'No expense categories available',
+                    suggestion: 'Run POST /api/debug/init-categories first'
+                });
+            }
+            
+            testData.category_id = expenseCategories[0].id;
+            testData.name = `Test Budget - ${expenseCategories[0].name}`;
+        }
+        
+        // Verify category exists
+        const [categoryCheck] = await pool.query(
+            'SELECT id, name, type FROM categories WHERE id = ?',
+            [testData.category_id]
+        );
+        
+        if (categoryCheck.length === 0) {
+            return res.status(400).json({ 
+                error: 'Test category not found',
+                category_id: testData.category_id
+            });
+        }
+        
+        // Test budget creation
+        const [result] = await pool.query(
+            `INSERT INTO budgets (user_id, category_id, name, amount, period, start_date, end_date, description, alert_threshold, notes) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                req.user.id,
+                testData.category_id,
+                testData.name,
+                testData.amount,
+                testData.period,
+                testData.start_date,
+                testData.end_date,
+                testData.description,
+                testData.alert_threshold,
+                testData.notes
+            ]
+        );
+        
+        console.log('✅ Test budget created successfully:', result.insertId);
+        
+        // Get the created budget
+        const [createdBudget] = await pool.query(
+            'SELECT * FROM budgets WHERE id = ?',
+            [result.insertId]
+        );
+        
+        // Clean up test budget
+        await pool.query('DELETE FROM budgets WHERE id = ?', [result.insertId]);
+        console.log('🧹 Test budget cleaned up');
+        
+        res.json({
+            status: 'test_success',
+            message: 'Budget creation test passed - schema and API working correctly',
+            test_budget_id: result.insertId,
+            test_data: testData,
+            created_budget: createdBudget[0],
+            category_info: categoryCheck[0]
+        });
+        
+    } catch (error) {
+        console.error('🚨 Test budget creation error:', error);
+        res.status(500).json({ 
+            status: 'test_failed',
+            error: 'Test budget creation failed',
+            message: error.message,
+            sql_code: error.code,
+            sql_errno: error.errno,
+            sql_message: error.sqlMessage,
+            suggestions: [
+                error.code === 'ER_BAD_NULL_ERROR' ? 'Database schema issue: some required field is NULL' : '',
+                error.code === 'ER_NO_REFERENCED_ROW_2' ? 'Foreign key constraint: category_id or user_id invalid' : '',
+                error.message.includes('end_date') ? 'Run database migration to make end_date nullable' : ''
+            ].filter(Boolean)
+        });
+    }
+});
+
+// POST /api/debug/init-categories - Initialize default categories
+router.post('/init-categories', authenticateToken, async (req, res) => {
+    try {
+        // Check existing categories
+        const [existingCategories] = await pool.query(
+            'SELECT COUNT(*) as count FROM categories WHERE is_default = TRUE'
+        );
+        
+        if (existingCategories[0].count > 0) {
+            return res.json({
+                message: 'Default categories already exist',
+                count: existingCategories[0].count,
+                status: 'already_initialized'
+            });
+        }
+        
+        // Enhanced default categories optimized for budget management
+        const defaultCategories = [
+            // Income categories
+            ['Salary', 'income', '#28a745', 'fas fa-money-bill-wave'],
+            ['Freelance', 'income', '#20c997', 'fas fa-laptop'],
+            ['Investment Returns', 'income', '#17a2b8', 'fas fa-chart-line'],
+            ['Other Income', 'income', '#6f42c1', 'fas fa-plus-circle'],
+            
+            // Enhanced expense categories for comprehensive budget management
+            ['Housing', 'expense', '#ff6b6b', 'fas fa-home'],
+            ['Food & Dining', 'expense', '#4ecdc4', 'fas fa-utensils'],
+            ['Transportation', 'expense', '#45b7d1', 'fas fa-car'],
+            ['Bills & Utilities', 'expense', '#feca57', 'fas fa-file-invoice'],
+            ['Entertainment', 'expense', '#96ceb4', 'fas fa-film'],
+            ['Healthcare', 'expense', '#ff9ff3', 'fas fa-heartbeat'],
+            ['Shopping', 'expense', '#a29bfe', 'fas fa-shopping-bag'],
+            ['Education', 'expense', '#2ecc71', 'fas fa-graduation-cap'],
+            ['Travel', 'expense', '#e67e22', 'fas fa-plane'],
+            ['Insurance', 'expense', '#fdcb6e', 'fas fa-shield-alt'],
+            ['Other Expenses', 'expense', '#7f8c8d', 'fas fa-ellipsis-h']
+        ];
+        
+        let createdCount = 0;
+        const createdCategories = [];
+        
+        for (const [name, type, color, icon] of defaultCategories) {
+            try {
+                const [result] = await pool.query(
+                    `INSERT IGNORE INTO categories (name, type, color, icon, is_default) 
+                     VALUES (?, ?, ?, ?, TRUE)`,
+                    [name, type, color, icon]
+                );
+                
+                if (result.affectedRows > 0) {
+                    createdCount++;
+                    createdCategories.push({ name, type, color, icon });
+                }
+            } catch (error) {
+                console.log(`Category ${name} creation issue:`, error.message);
+            }
+        }
+        
+        res.json({
+            status: 'categories_initialized',
+            message: `${createdCount} categories created successfully`,
+            created_count: createdCount,
+            total_attempted: defaultCategories.length,
+            created_categories: createdCategories
+        });
+        
+    } catch (error) {
+        console.error('Init categories error:', error);
+        res.status(500).json({ 
+            error: 'Failed to initialize categories',
+            message: error.message
+        });
+    }
+});
+
+// POST /api/debug/run-migrations - Run database migrations manually
+router.post('/run-migrations', authenticateToken, async (req, res) => {
+    try {
+        const migrations = [
+            {
+                name: 'Make budgets.end_date nullable',
+                sql: 'ALTER TABLE budgets MODIFY COLUMN end_date DATE DEFAULT NULL',
+                check: 'SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "budgets" AND COLUMN_NAME = "end_date"'
+            },
+            {
+                name: 'Add notes column to budgets',
+                sql: 'ALTER TABLE budgets ADD COLUMN notes TEXT',
+                check: 'SELECT COUNT(*) as count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "budgets" AND COLUMN_NAME = "notes"'
+            },
+            {
+                name: 'Add updated_at to budgets',
+                sql: 'ALTER TABLE budgets ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                check: 'SELECT COUNT(*) as count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "budgets" AND COLUMN_NAME = "updated_at"'
+            },
+            {
+                name: 'Add is_default to categories',
+                sql: 'ALTER TABLE categories ADD COLUMN is_default BOOLEAN DEFAULT FALSE',
+                check: 'SELECT COUNT(*) as count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "categories" AND COLUMN_NAME = "is_default"'
+            }
+        ];
+        
+        const results = [];
+        
+        for (const migration of migrations) {
+            try {
+                // Check if migration is needed
+                const [checkResult] = await pool.query(migration.check);
+                const needsMigration = migration.check.includes('IS_NULLABLE') ? 
+                    checkResult[0].IS_NULLABLE !== 'YES' : 
+                    checkResult[0].count === 0;
+                
+                if (needsMigration) {
+                    await pool.query(migration.sql);
+                    results.push({ 
+                        migration: migration.name, 
+                        status: 'applied',
+                        needed: true
+                    });
+                } else {
+                    results.push({ 
+                        migration: migration.name, 
+                        status: 'already_applied',
+                        needed: false
+                    });
+                }
+            } catch (error) {
+                results.push({ 
+                    migration: migration.name, 
+                    status: 'failed',
+                    error: error.message
+                });
+            }
+        }
+        
+        res.json({
+            status: 'migrations_complete',
+            message: 'Database migrations processed',
+            results
+        });
+        
+    } catch (error) {
+        console.error('Run migrations error:', error);
+        res.status(500).json({ 
+            error: 'Failed to run migrations',
+            message: error.message
+        });
+    }
+});
+
+// GET /api/debug/system-info - Overall system diagnostics
+router.get('/system-info', authenticateToken, async (req, res) => {
+    try {
+        // Database connection test
+        const [connectionTest] = await pool.query('SELECT 1 as connected, NOW() as server_time');
+        
+        // Table existence checks
+        const [tables] = await pool.query(`
+            SELECT TABLE_NAME
+            FROM information_schema.TABLES 
+            WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME IN ('users', 'categories', 'transactions', 'budgets', 'bills', 'debts', 'goals')
+        `);
+        
+        // User data summary
+        const [userSummary] = await pool.query(`
+            SELECT 
+                'transactions' as data_type,
+                COUNT(*) as count,
+                MAX(created_at) as latest_entry
+            FROM transactions WHERE user_id = ?
+            UNION ALL
+            SELECT 
+                'budgets' as data_type,
+                COUNT(*) as count,
+                MAX(created_at) as latest_entry
+            FROM budgets WHERE user_id = ?
+            UNION ALL
+            SELECT 
+                'categories' as data_type,
+                COUNT(*) as count,
+                MAX(created_at) as latest_entry
+            FROM categories WHERE is_default = TRUE OR id IN (
+                SELECT DISTINCT category_id FROM transactions WHERE user_id = ?
+            )
+        `, [req.user.id, req.user.id, req.user.id]);
+        
+        res.json({
+            status: 'system_healthy',
+            timestamp: new Date().toISOString(),
+            database: {
+                connected: connectionTest[0].connected === 1,
+                server_time: connectionTest[0].server_time
+            },
+            tables: {
+                available: tables.map(t => t.TABLE_NAME),
+                count: tables.length,
+                required: ['users', 'categories', 'transactions', 'budgets'],
+                missing: ['users', 'categories', 'transactions', 'budgets'].filter(
+                    required => !tables.find(t => t.TABLE_NAME === required)
+                )
+            },
+            user_data: userSummary.reduce((acc, row) => {
+                acc[row.data_type] = {
+                    count: parseInt(row.count),
+                    latest_entry: row.latest_entry
+                };
+                return acc;
+            }, {}),
+            endpoints_available: [
+                'GET /api/budgets',
+                'GET /api/budgets/analysis', 
+                'GET /api/budgets/recommendations',
+                'GET /api/budgets/templates',
+                'GET /api/budgets/categories',
+                'POST /api/budgets/apply-template',
+                'POST /api/budgets',
+                'PUT /api/budgets/:id',
+                'DELETE /api/budgets/:id'
+            ]
+        });
+        
+    } catch (error) {
+        console.error('System info error:', error);
+        res.status(500).json({ 
+            status: 'system_error',
+            error: 'Failed to get system information',
+            message: error.message
+        });
+    }
+});
+
+module.exports = router;
