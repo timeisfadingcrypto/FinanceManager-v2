@@ -124,8 +124,13 @@ router.get('/profile', authenticateToken, async (req, res) => {
     }
 });
 
-// Verify token
+// Verify token (POST remains for backward compatibility)
 router.post('/verify', authenticateToken, (req, res) => {
+    res.json({ valid: true, user: req.user });
+});
+
+// New: Verify token via GET for frontend bootstrap
+router.get('/verify', authenticateToken, (req, res) => {
     res.json({ valid: true, user: req.user });
 });
 
